@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cuándo llega · La Plata</title>
+<style>
+  :root { --bg:#fafafa; --fg:#111; --muted:#666; --card:#fff; --line:#e3e3e3; --accent:#0a6cff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --muted:#999; --card:#1b1b1b; --line:#2c2c2c; --accent:#5b9dff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.4 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:560px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.3rem; margin:0 0 12px; }
+  h1 a { color:inherit; text-decoration:none; }
+  button, select, input { font:inherit; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); width:100%; }
+  button { cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border:0; }
+  .row { display:flex; gap:8px; margin-bottom:10px; }
+  .row > * { flex:1; }
+  .stack > * { margin-bottom:10px; }
+  ul { list-style:none; padding:0; margin:0; }
+  li { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+  li.click { cursor:pointer; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .eta { float:right; font-weight:600; }
+  .line { font-weight:700; }
+  .err { color:#d33; }
+</style>
+</head>
+<body>
+<main>
+  <h1><a href="#">🚌 Cuándo llega · La Plata</a></h1>
+  <div id="app"></div>
+</main>
+<script>
+const app = document.getElementById('app');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const api = async (name, params = {}) => {
+  const res = await fetch(`/api/${name}?${new URLSearchParams(params)}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+};
+const opts = (items, placeholder) =>
+  `<option value="">${placeholder}</option>` + items.map(i => `<option value="${esc(i.codigo)}">${esc(i.descripcion)}</option>`).join('');
+const stopItem = p => `<li class="click" data-stop="${esc(p.identificador)}">
+  <b>${esc(p.callePrincipal)} y ${esc(p.calleInterseccion)}</b> <span class="muted">${esc(p.identificador)}</span>
+  ${p.lineas ? `<div class="muted">${esc(p.lineas)}</div>` : ''}</li>`;
+const bindStops = el => el.querySelectorAll('[data-stop]').forEach(li =>
+  li.onclick = () => location.hash = `parada=${li.dataset.stop}`);
+const fail = (el, err) => el.innerHTML = `<p class="err">${esc(err.message)}</p>`;
+
+let timer;
+
+async function home() {
+  app.innerHTML = `
+    <div class="stack">
+      <button class="primary" id="near">📍 Paradas cerca mío</button>
+      <form class="row" id="byId"><input name="id" placeholder="Código de parada (ej. LP10217)" required><button style="flex:0 0 auto;width:auto">Ver</button></form>
+      <select id="linea"><option>Cargando líneas…</option></select>
+      <select id="calle" hidden></select>
+      <select id="inter" hidden></select>
+    </div>
+    <ul id="list"></ul>`;
+  const $ = id => document.getElementById(id), list = $('list');
+
+  $('byId').onsubmit = e => { e.preventDefault(); location.hash = `parada=${e.target.id.value.trim().toUpperCase()}`; };
+
+  $('near').onclick = () => {
+    list.innerHTML = '<p class="muted">Buscando ubicación…</p>';
+    navigator.geolocation.getCurrentPosition(async ({ coords }) => {
+      try {
+        const stops = await api('cercanas', { lat: coords.latitude, lng: coords.longitude });
+        list.innerHTML = stops.length ? stops.map(stopItem).join('') : '<p class="muted">No hay paradas cerca.</p>';
+        bindStops(list);
+      } catch (err) { fail(list, err); }
+    }, err => fail(list, err), { enableHighAccuracy: true, timeout: 10000 });
+  };
+
+  try { $('linea').innerHTML = opts(await api('lineas'), 'Elegí una línea…'); }
+  catch (err) { fail(list, err); }
+
+  $('linea').onchange = async () => {
+    $('calle').hidden = $('inter').hidden = true; list.innerHTML = '';
+    if (!$('linea').value) return;
+    $('calle').innerHTML = opts(await api('calles', { codLinea: $('linea').value }), 'Calle…');
+    $('calle').hidden = false;
+  };
+  $('calle').onchange = async () => {
+    $('inter').hidden = true; list.innerHTML = '';
+    if (!$('calle').value) return;
+    $('inter').innerHTML = opts(await api('intersecciones', { codLinea: $('linea').value, codCalle: $('calle').value }), 'Esquina…');
+    $('inter').hidden = false;
+  };
+  $('inter').onchange = async () => {
+    if (!$('inter').value) return;
+    try {
+      const stops = await api('paradas', { codLinea: $('linea').value, codCalle: $('calle').value, codInterseccion: $('inter').value });
+      list.innerHTML = stops.map(stopItem).join('');
+      bindStops(list);
+    } catch (err) { fail(list, err); }
+  };
+}
+
+async function stop(id) {
+  app.innerHTML = `<p><b>Parada ${esc(id)}</b> <span class="muted" id="upd"></span></p><ul id="list"><p class="muted">Cargando…</p></ul>`;
+  const list = document.getElementById('list');
+  const load = async () => {
+    try {
+      const { arribos } = await api('arribos', { codLinea: 0, idParada: id });
+      list.innerHTML = arribos.length ? arribos.map(a => `<li>
+        <span class="eta">${esc(a.tiempoRestanteArribo)}</span>
+        <span class="line">${esc(a.descripcionLinea)}</span> ${a.esAdaptado ? '♿' : ''}
+        <div class="muted">${esc(a.descripcionCartelBandera || a.descripcionBandera)}</div></li>`).join('')
+        : '<p class="muted">Sin arribos próximos.</p>';
+      document.getElementById('upd').textContent = `· ${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`;
+    } catch (err) { fail(list, err); }
+  };
+  await load();
+  timer = setInterval(load, 30_000); // upstream rate-limits; don't go faster
+}
+
+function route() {
+  clearInterval(timer);
+  const id = new URLSearchParams(location.hash.slice(1)).get('parada');
+  id ? stop(id) : home();
+}
+addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
