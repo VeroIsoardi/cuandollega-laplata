@@ -82,14 +82,19 @@ horas.
 
 ## Correrlo
 
-Necesitás Node 22 o más nuevo. No tiene dependencias.
+Necesitás Node 22 o más nuevo. La app no tiene dependencias; Playwright solo se usa para los tests.
 
 ```bash
-npm start   # http://localhost:3000 (cambiá el puerto con PORT)
-npm test
+npm start          # http://localhost:3000 (cambiá el puerto con PORT)
+npm test           # tests del servidor y del catálogo
+npm install        # una vez, para los tests en el navegador
+npm run test:e2e   # la app completa en Chromium headless
 ```
 
-Los tests simulan el servidor de origen, así que no hacen pedidos reales.
+Los tests simulan el servidor de origen con datos inventados, así que nunca
+consultan a SmartMove. Los de navegador usan Playwright; si su Chromium no está
+instalado, corré `npx playwright install chromium` o indicá otro con
+`CHROMIUM_PATH=/ruta/a/chrome`.
 
 | Variable | Para qué | Por defecto |
 | --- | --- | --- |
@@ -113,6 +118,7 @@ el momento.
 - `index.html`, `app.js`, `style.css`: el frontend, en JavaScript sin frameworks. El mapa usa [Leaflet](https://leafletjs.com) con OpenStreetMap.
 - `manifest.webmanifest`, `sw.js`, `icon*`: lo necesario para instalarla como app.
 - `test/`: tests del proxy y del catálogo, con `node:test`.
+- `test/e2e/`: tests de la app en el navegador (Playwright) contra un SmartMove simulado.
 
 ## Créditos
 
