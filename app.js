@@ -424,6 +424,8 @@ function mapa() {
     if (map.getZoom() < 15) { say('Acercá el mapa para ver las paradas'); return layer.clearLayers(); }
     say('');
     const b = map.getBounds(), mine = ++seq;
+    // Seen in the wild: a zero-size box when the map measured its container before layout. Re-measure and retry.
+    if (b.getNorth() === b.getSouth() || b.getEast() === b.getWest()) { map.invalidateSize(); return later(load, 300); }
     try {
       const stops = await api('zona', { s: b.getSouth(), w: b.getWest(), n: b.getNorth(), e: b.getEast() });
       if (mine !== seq || !hint.isConnected) return;
